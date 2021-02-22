@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package service;
+
+option go_package = "proto;pb";
+
+message User {
+    string id = 1;
+    string email = 2;
+    string password = 3;
+    string name= 4;
+}
+
+message CreateUserReq {
+    User user = 1; 
+}
+
+message CreateUserRes {
+    User user = 1; 
+}
+
+message LoginUserReq {
+    string email = 1;
+    string password = 2;
+}
+
+message LoginUserRes {
+    User user = 1; 
+    string AccessToken = 2;
+}
+
+message ReadUserReq {
+    string id = 1;
+}
+
+message ReadUserRes {
+    User user = 1;
+}
+
+message UpdateUserReq {
+    User user = 1;
+}
+
+message UpdateUserRes {
+    User user = 1;
+}
+
+message DeleteUserReq {
+    string id = 1;
+}
+
+message DeleteUserRes {
+    bool success = 1;
+}
+
+message ListUsersReq {}
+
+message ListUsersRes {
+    User user = 1;
+}
+
+message Event {
+    string id = 1;
+    string author_id = 2;
+    string title = 3;
+    string content= 4;
+}
+
+message CreateEventReq {
+    Event event = 1; // Event id blank
+}
+
+message CreateEventRes {
+    Event event = 1; // Event id filled in
+}
+
+message ReadEventReq {
+    string id = 1;
+}
+
+message ReadEventRes {
+    Event event = 1;
+}
+
+message UpdateEventReq {
+    Event event = 1;
+}
+
+message UpdateEventRes {
+    Event event = 1;
+}
+
+message DeleteEventReq {
+    string id = 1;
+}
+
+message DeleteEventRes {
+    bool success = 1;
+}
+
+message ListEventsReq {}
+
+message ListEventsRes {
+    Event event = 1;
+}
+
+service Service {
+    rpc CreateUser(CreateUserReq) returns (CreateUserRes);
+    rpc LoginUser(LoginUserReq) returns (LoginUserRes);
+    rpc ReadUser(ReadUserReq) returns (ReadUserRes);
+    rpc UpdateUser(UpdateUserReq) returns (UpdateUserRes);
+    rpc DeleteUser(DeleteUserReq) returns (DeleteUserRes);
+    rpc ListUsers(ListUsersReq) returns (stream ListUsersRes);
+    rpc CreateEvent(CreateEventReq) returns (CreateEventRes);
+    rpc ReadEvent(ReadEventReq) returns (ReadEventRes);
+    rpc UpdateEvent(UpdateEventReq) returns (UpdateEventRes);
+    rpc DeleteEvent(DeleteEventReq) returns (DeleteEventRes);
+    rpc ListEvents(ListEventsReq) returns (stream ListEventsRes);
+}
