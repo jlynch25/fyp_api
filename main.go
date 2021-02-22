@@ -246,6 +246,15 @@ func (s *ServiceServer) UpdateEvent(ctx context.Context, req *pb.UpdateEventReq)
 	// Get the event data from the request
 	event := req.GetEvent()
 
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	if userID != event.GetAuthorId() {
+		return nil, status.Errorf(codes.Unauthenticated, fmt.Sprintf("Not authorized: %v", err))
+	}
+
 	// Convert the Id string to a MongoDB ObjectId
 	oid, err := primitive.ObjectIDFromHex(event.GetId())
 	if err != nil {
@@ -257,9 +266,8 @@ func (s *ServiceServer) UpdateEvent(ctx context.Context, req *pb.UpdateEventReq)
 
 	// Convert the data to be updated into an unordered Bson document
 	update := bson.M{
-		"authord_id": event.GetAuthorId(),
-		"title":      event.GetTitle(),
-		"content":    event.GetContent(),
+		"title":   event.GetTitle(),
+		"content": event.GetContent(),
 	}
 
 	// Convert the oid into an unordered bson document to search by id
@@ -330,10 +338,12 @@ func (s *ServiceServer) ListEvents(req *pb.ListEventsReq, stream pb.Service_List
 func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (*pb.CreateUserRes, error) {
 	// Essentially doing req.User to access the struct with a nil check
 	user := req.GetUser()
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.GetPassword()), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
 	}
+
 	// Now we have to convert this into a models.User type to convert into BSON
 	data := model.User{
 		// ID:    Empty, so it gets omitted and MongoDB generates a unique Object ID upon insertion.
@@ -433,7 +443,12 @@ func (s *ServiceServer) ReadUser(ctx context.Context, req *pb.ReadUserReq) (*pb.
 // DeleteUser function
 func (s *ServiceServer) DeleteUser(ctx context.Context, req *pb.DeleteUserReq) (*pb.DeleteUserRes, error) {
 	// Get the ID (string) from the request message and convert it to an Object ID
-	oid, err := primitive.ObjectIDFromHex(req.GetId())
+	id, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	oid, err := primitive.ObjectIDFromHex(id)
 	// Check for errors
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("Could not convert to ObjectId: %v", err))
@@ -456,8 +471,13 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 	// Get the user data from the request
 	user := req.GetUser()
 
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
 	// Convert the Id string to a MongoDB ObjectId
-	oid, err := primitive.ObjectIDFromHex(user.GetId())
+	oid, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return nil, status.Errorf(
 			codes.InvalidArgument,
@@ -465,11 +485,26 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 		)
 	}
 
-	// Convert the data to be updated into an unordered Bson document
-	update := bson.M{
-		"name":     user.GetName(),
-		"email":    user.GetEmail(),
-		"password": user.GetPassword(),
+	update := bson.M{}
+
+	if user.GetPassword() != "" {
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.GetPassword()), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
+		}
+		// Convert the data to be updated into an unordered Bson document
+		update = bson.M{
+			"name":     user.GetName(),
+			"email":    user.GetEmail(),
+			"password": string(hashedPassword),
+		}
+	} else {
+		// Convert the data to be updated into an unordered Bson document
+		update = bson.M{
+			"name":  user.GetName(),
+			"email": user.GetEmail(),
+		}
 	}
 
 	// Convert the oid into an unordered bson document to search by id
