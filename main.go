@@ -344,6 +344,11 @@ func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
 	}
 
+	// TODO - test
+	if userdb.FindOne(ctx, bson.M{"email": user.GetEmail()}) != nil {
+		return nil, status.Errorf(codes.AlreadyExists, fmt.Sprintf("Email taken"))
+	}
+
 	// Now we have to convert this into a models.User type to convert into BSON
 	data := model.User{
 		// ID:    Empty, so it gets omitted and MongoDB generates a unique Object ID upon insertion.
@@ -443,12 +448,12 @@ func (s *ServiceServer) ReadUser(ctx context.Context, req *pb.ReadUserReq) (*pb.
 // DeleteUser function
 func (s *ServiceServer) DeleteUser(ctx context.Context, req *pb.DeleteUserReq) (*pb.DeleteUserRes, error) {
 	// Get the ID (string) from the request message and convert it to an Object ID
-	id, err := getUserID(ctx)
+	userID, err := getUserID(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
 	}
 
-	oid, err := primitive.ObjectIDFromHex(id)
+	oid, err := primitive.ObjectIDFromHex(userID)
 	// Check for errors
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("Could not convert to ObjectId: %v", err))
@@ -458,7 +463,7 @@ func (s *ServiceServer) DeleteUser(ctx context.Context, req *pb.DeleteUserReq) (
 	_, err = userdb.DeleteOne(ctx, bson.M{"_id": oid})
 	// Check for errors
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("Could not find/delete user with id %s: %v", req.GetId(), err))
+		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("Could not find/delete user with id %s: %v", userID, err))
 	}
 	// Return response with success: true if no error is thrown (and thus document is removed)
 	return &pb.DeleteUserRes{
