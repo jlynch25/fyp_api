@@ -10,10 +10,12 @@ type Event struct {
 }
 
 type User struct {
-	ID       primitive.ObjectID `bson:"_id,omitempty"`
-	Email    string             `bson:"email"`
-	Password string             `bson:"password"`
-	Name     string             `bson:"name"`
+	ID            primitive.ObjectID   `bson:"_id,omitempty"`
+	Email         string               `bson:"email"`
+	Password      string               `bson:"password"`
+	Name          string               `bson:"name"`
+	PhoneNumber   string               `bson:"phoneNumber"`
+	WalletAddress string               `bson:"walletAddress"`
+	Friends       []primitive.ObjectID `bson:"user,omitempty"`
 	// Events   []modelEvent       `bson:"events"`
-	// Friends  []modelUser        `bson:"friends"`
 }

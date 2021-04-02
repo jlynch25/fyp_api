@@ -92,13 +92,12 @@ func main() {
 		}
 	}()
 	fmt.Println("Server succesfully started on port :50051")
+	defer fmt.Println("\nServer Stopped serving")
 
 	// Stop the server using a SHUTDOWN HOOK
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt)
 	<-c
-
-	fmt.Println("\nServer Stopped serving")
 }
 
 func validateToken(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -139,8 +138,12 @@ func getUserID(ctx context.Context) (string, error) {
 
 	tokenString := strings.TrimPrefix(md["authorization"][0], "Bearer ")
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte("pi is exactly 3!"), nil
+	type MyCustomClaims struct {
+		jwt.StandardClaims
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte("pi_is_exactly_3"), nil
 	})
 
 	if err != nil {
@@ -151,7 +154,13 @@ func getUserID(ctx context.Context) (string, error) {
 		)
 	}
 
-	userID := token.Claims.(jwt.StandardClaims).Id
+	userID := ""
+
+	if claims, ok := token.Claims.(*MyCustomClaims); ok && token.Valid {
+		userID = claims.Id
+	} else {
+		fmt.Println(ok)
+	}
 
 	return userID, nil
 }
@@ -344,8 +353,8 @@ func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
 	}
 
-	// TODO - test
-	if userdb.FindOne(ctx, bson.M{"email": user.GetEmail()}) != nil {
+	userExists := userdb.FindOne(ctx, bson.M{"email": user.GetEmail()})
+	if err := userExists.Decode(&model.User{}); err == nil {
 		return nil, status.Errorf(codes.AlreadyExists, fmt.Sprintf("Email taken"))
 	}
 
@@ -371,8 +380,42 @@ func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (
 	oid := result.InsertedID.(primitive.ObjectID)
 	// Convert the object id to it's string counterpart
 	user.Id = oid.Hex()
+
+	// JWT
+	// Create the Claims
+	type MyCustomClaims struct {
+		jwt.StandardClaims
+	}
+
+	claims := MyCustomClaims{
+		jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(time.Hour * 72).Unix(),
+			Id:        oid.Hex(),
+		},
+	}
+
+	// Create the token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	// Sign and get the complete encoded token as a string
+	mySigningKey := []byte("pi_is_exactly_3")
+	tokenString, err := token.SignedString(mySigningKey)
+
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("jwt error for user %s: %v", user.GetEmail(), err))
+	}
+
+	// Cast to CreateUserRes type
+	response := &pb.CreateUserRes{
+		User: &pb.User{
+			Id:    user.Id,
+			Name:  user.Name,
+			Email: user.Email,
+		},
+		AccessToken: tokenString,
+	}
+
 	// return the user in a CreateUserRes type
-	return &pb.CreateUserRes{User: user}, nil
+	return response, nil
 }
 
 // LoginUser function
@@ -402,19 +445,21 @@ func (s *ServiceServer) LoginUser(ctx context.Context, req *pb.LoginUserReq) (*p
 	// Create the token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	// Sign and get the complete encoded token as a string
-	mySigningKey := []byte("pi is exactly 3!")
+	mySigningKey := []byte("pi_is_exactly_3")
 	tokenString, err := token.SignedString(mySigningKey)
 
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("jwt error for user %s: %v", req.GetEmail(), err))
 	}
 
-	// Cast to ReadUserRes type
+	// Cast to LoginUserRes type
 	response := &pb.LoginUserRes{
 		User: &pb.User{
-			Id:    data.ID.Hex(),
-			Name:  data.Name,
-			Email: data.Email,
+			Id:            data.ID.Hex(),
+			Name:          data.Name,
+			Email:         data.Email,
+			PhoneNumber:   data.PhoneNumber,
+			WalletAddress: data.WalletAddress,
 		},
 		AccessToken: tokenString,
 	}
@@ -438,8 +483,11 @@ func (s *ServiceServer) ReadUser(ctx context.Context, req *pb.ReadUserReq) (*pb.
 	// Cast to ReadUserRes type
 	response := &pb.ReadUserRes{
 		User: &pb.User{
-			Id:   oid.Hex(),
-			Name: data.Name,
+			Id:            oid.Hex(),
+			Name:          data.Name,
+			Email:         data.Email,
+			PhoneNumber:   data.PhoneNumber,
+			WalletAddress: data.WalletAddress,
 		},
 	}
 	return response, nil
@@ -492,24 +540,32 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 
 	update := bson.M{}
 
-	if user.GetPassword() != "" {
+	if !(user.GetName() != "" && user.GetEmail() != "" && user.GetPassword() != "" && user.GetPhoneNumber() != "") {
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.GetPassword()), bcrypt.DefaultCost)
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
+		if user.GetPassword() != "" {
+
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.GetPassword()), bcrypt.DefaultCost)
+			if err != nil {
+				return nil, status.Errorf(codes.NotFound, fmt.Sprintf("bcrypt GenerateFromPassword error for user %s: %v", user.GetEmail(), err))
+			}
+			// Convert the data to be updated into an unordered Bson document
+			update["password"] = string(hashedPassword)
 		}
-		// Convert the data to be updated into an unordered Bson document
-		update = bson.M{
-			"name":     user.GetName(),
-			"email":    user.GetEmail(),
-			"password": string(hashedPassword),
+		if user.GetName() != "" {
+			update["name"] = user.GetName()
 		}
+		if user.GetEmail() != "" {
+			update["email"] = user.GetEmail()
+		}
+		if user.GetPhoneNumber() != "" {
+			update["phoneNumber"] = user.GetPhoneNumber()
+		}
+		if user.GetWalletAddress() != "" {
+			update["walletAddress"] = user.GetWalletAddress()
+		}
+
 	} else {
-		// Convert the data to be updated into an unordered Bson document
-		update = bson.M{
-			"name":  user.GetName(),
-			"email": user.GetEmail(),
-		}
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
 	}
 
 	// Convert the oid into an unordered bson document to search by id
@@ -530,10 +586,11 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 	}
 	return &pb.UpdateUserRes{
 		User: &pb.User{
-			Id:       decoded.ID.Hex(),
-			Name:     decoded.Name,
-			Email:    decoded.Email,
-			Password: decoded.Password,
+			Id:            decoded.ID.Hex(),
+			Name:          decoded.Name,
+			Email:         decoded.Email,
+			PhoneNumber:   decoded.PhoneNumber,
+			WalletAddress: decoded.WalletAddress,
 		},
 	}, nil
 }
@@ -560,10 +617,9 @@ func (s *ServiceServer) ListUsers(req *pb.ListUsersReq, stream pb.Service_ListUs
 		// If no error is found send user over stream
 		stream.Send(&pb.ListUsersRes{
 			User: &pb.User{
-				Id:       data.ID.Hex(),
-				Name:     data.Name,
-				Email:    data.Email,
-				Password: data.Password,
+				Id:    data.ID.Hex(),
+				Name:  data.Name,
+				Email: data.Email,
 			},
 		})
 	}
@@ -572,4 +628,111 @@ func (s *ServiceServer) ListUsers(req *pb.ListUsersReq, stream pb.Service_ListUs
 		return status.Errorf(codes.Internal, fmt.Sprintf("Unkown cursor error: %v", err))
 	}
 	return nil
+}
+
+func (s *ServiceServer) AddFriendUser(ctx context.Context, req *pb.UpdateFriendUserReq) (*pb.UpdateFriendUserRes, error) {
+
+	friends := req.GetId()
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	var update []string
+
+	if friends != nil {
+
+		for _, id := range friends {
+
+			oid, err := primitive.ObjectIDFromHex(id)
+			if err == nil {
+				friend := userdb.FindOne(ctx, bson.M{"_id": oid})
+
+				decoded := model.User{}
+				err = friend.Decode(&decoded)
+				if err == nil {
+					update = append(update, id)
+				}
+			}
+		}
+
+	} else {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
+	}
+
+	filter := bson.M{"_id": oid}
+
+	result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$addToSet": bson.M{"friends": bson.M{"$each": update}}}, options.FindOneAndUpdate().SetReturnDocument(1))
+
+	decoded := model.User{}
+	err = result.Decode(&decoded)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.NotFound,
+			fmt.Sprintf("Could not find user with supplied ID: %v", err),
+		)
+	}
+	// Return response with success: true if no error is thrown (and thus document is removed)
+	return &pb.UpdateFriendUserRes{
+		Success: true,
+	}, nil
+}
+
+func (s *ServiceServer) RemoveFriendUser(ctx context.Context, req *pb.UpdateFriendUserReq) (*pb.UpdateFriendUserRes, error) {
+
+	friends := req.GetId()
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	var update []string
+
+	if friends != nil {
+
+		for _, id := range friends {
+
+			update = append(update, id)
+		}
+
+	} else {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
+	}
+
+	filter := bson.M{"_id": oid}
+
+	result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$pullAll": bson.M{"friends": update}}, options.FindOneAndUpdate().SetReturnDocument(1))
+
+	decoded := model.User{}
+	err = result.Decode(&decoded)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.NotFound,
+			fmt.Sprintf("Could not find user with supplied ID: %v", err),
+		)
+	}
+	// Return response with success: true if no error is thrown (and thus document is removed)
+	return &pb.UpdateFriendUserRes{
+		Success: true,
+	}, nil
 }

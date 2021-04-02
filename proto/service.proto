@@ -1,3 +1,32 @@
+// syntax = "proto3";
+
+// package proto;
+
+// option go_package = "proto;chatpb";
+
+// message User {
+//     string id = 1;
+//     string name = 2;
+// }
+
+// message Message {
+//     string id = 1;
+//     string content = 2;
+//     string timestamp = 3;
+// }
+
+// message Connect {
+//     User user = 1;
+//     bool active = 2;
+// }
+
+// message Close {}
+
+// service Broadcast {
+//   rpc CreateStream(Connect) returns (stream Message);
+//   rpc BroadcastMessage(Message) returns (Close);
+// }
+
 syntax = "proto3";
 
 package service;
@@ -8,7 +37,10 @@ message User {
     string id = 1;
     string email = 2;
     string password = 3;
-    string name= 4;
+    string name = 4;
+    string phoneNumber = 5;
+    string walletAddress = 6;
+    repeated string friends = 7;
 }
 
 message CreateUserReq {
@@ -17,6 +49,7 @@ message CreateUserReq {
 
 message CreateUserRes {
     User user = 1; 
+    string AccessToken = 2;
 }
 
 message LoginUserReq {
@@ -57,6 +90,14 @@ message ListUsersReq {}
 
 message ListUsersRes {
     User user = 1;
+}
+
+message UpdateFriendUserReq {
+    repeated string id = 1;
+}
+
+message UpdateFriendUserRes {
+    bool success = 1;
 }
 
 message Event {
@@ -111,6 +152,8 @@ service Service {
     rpc UpdateUser(UpdateUserReq) returns (UpdateUserRes);
     rpc DeleteUser(DeleteUserReq) returns (DeleteUserRes);
     rpc ListUsers(ListUsersReq) returns (stream ListUsersRes);
+    rpc AddFriendUser(UpdateFriendUserReq) returns (UpdateFriendUserRes);
+    rpc RemoveFriendUser(UpdateFriendUserReq) returns (UpdateFriendUserRes);
     rpc CreateEvent(CreateEventReq) returns (CreateEventRes);
     rpc ReadEvent(ReadEventReq) returns (ReadEventRes);
     rpc UpdateEvent(UpdateEventReq) returns (UpdateEventRes);
