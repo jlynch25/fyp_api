@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,6 +124,33 @@ func valid(authorization []string) bool {
 
 	// // If you have more than one client then you will have to update this line.
 	// return token == "client-x-id"
+}
+
+func getUserIDStream(tokenString string) (string, error) {
+	type MyCustomClaims struct {
+		jwt.StandardClaims
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte("pi_is_exactly_3"), nil
+	})
+
+	if err != nil {
+		// return internal gRPC error to be handled later
+		return "", status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Internal error: %v", err),
+		)
+	}
+
+	userID := ""
+
+	if claims, ok := token.Claims.(*MyCustomClaims); ok && token.Valid {
+		userID = claims.Id
+	} else {
+		fmt.Println(ok)
+	}
+	return userID, nil
 }
 
 func getUserID(ctx context.Context) (string, error) {
@@ -421,6 +449,9 @@ func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (
 // LoginUser function
 func (s *ServiceServer) LoginUser(ctx context.Context, req *pb.LoginUserReq) (*pb.LoginUserRes, error) {
 
+	fmt.Println("LOGIN")
+	fmt.Println(req.GetEmail())
+	fmt.Println(req.GetPassword())
 	result := userdb.FindOne(ctx, bson.M{"email": req.GetEmail()})
 	// Create an empty models.User to write our decode result to
 	data := model.User{}
@@ -452,14 +483,23 @@ func (s *ServiceServer) LoginUser(ctx context.Context, req *pb.LoginUserReq) (*p
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("jwt error for user %s: %v", req.GetEmail(), err))
 	}
 
+	var wallets []*pb.Wallet = []*pb.Wallet{}
+
+	for i := range data.Wallets {
+		wallets = append(wallets, &pb.Wallet{
+			Title:   data.Wallets[i].Title,
+			Address: data.Wallets[i].Address,
+		})
+	}
+
 	// Cast to LoginUserRes type
 	response := &pb.LoginUserRes{
 		User: &pb.User{
-			Id:            data.ID.Hex(),
-			Name:          data.Name,
-			Email:         data.Email,
-			PhoneNumber:   data.PhoneNumber,
-			WalletAddress: data.WalletAddress,
+			Id:          data.ID.Hex(),
+			Name:        data.Name,
+			Email:       data.Email,
+			PhoneNumber: data.PhoneNumber,
+			Wallets:     wallets,
 		},
 		AccessToken: tokenString,
 	}
@@ -480,14 +520,24 @@ func (s *ServiceServer) ReadUser(ctx context.Context, req *pb.ReadUserReq) (*pb.
 	if err := result.Decode(&data); err != nil {
 		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("Could not find user with Object Id %s: %v", req.GetId(), err))
 	}
+
+	var wallets []*pb.Wallet = []*pb.Wallet{}
+
+	for i := range data.Wallets {
+		wallets = append(wallets, &pb.Wallet{
+			Title:   data.Wallets[i].Title,
+			Address: data.Wallets[i].Address,
+		})
+	}
+
 	// Cast to ReadUserRes type
 	response := &pb.ReadUserRes{
 		User: &pb.User{
-			Id:            oid.Hex(),
-			Name:          data.Name,
-			Email:         data.Email,
-			PhoneNumber:   data.PhoneNumber,
-			WalletAddress: data.WalletAddress,
+			Id:          oid.Hex(),
+			Name:        data.Name,
+			Email:       data.Email,
+			PhoneNumber: data.PhoneNumber,
+			Wallets:     wallets,
 		},
 	}
 	return response, nil
@@ -560,9 +610,6 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 		if user.GetPhoneNumber() != "" {
 			update["phoneNumber"] = user.GetPhoneNumber()
 		}
-		if user.GetWalletAddress() != "" {
-			update["walletAddress"] = user.GetWalletAddress()
-		}
 
 	} else {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
@@ -584,13 +631,23 @@ func (s *ServiceServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (
 			fmt.Sprintf("Could not find user with supplied ID: %v", err),
 		)
 	}
+
+	var wallets []*pb.Wallet = []*pb.Wallet{}
+
+	for i := range decoded.Wallets {
+		wallets = append(wallets, &pb.Wallet{
+			Title:   decoded.Wallets[i].Title,
+			Address: decoded.Wallets[i].Address,
+		})
+	}
+
 	return &pb.UpdateUserRes{
 		User: &pb.User{
-			Id:            decoded.ID.Hex(),
-			Name:          decoded.Name,
-			Email:         decoded.Email,
-			PhoneNumber:   decoded.PhoneNumber,
-			WalletAddress: decoded.WalletAddress,
+			Id:          decoded.ID.Hex(),
+			Name:        decoded.Name,
+			Email:       decoded.Email,
+			PhoneNumber: decoded.PhoneNumber,
+			Wallets:     wallets,
 		},
 	}, nil
 }
@@ -648,7 +705,7 @@ func (s *ServiceServer) AddFriendUser(ctx context.Context, req *pb.UpdateFriendU
 		)
 	}
 
-	var update []string
+	var update []primitive.ObjectID
 
 	if friends != nil {
 
@@ -661,7 +718,7 @@ func (s *ServiceServer) AddFriendUser(ctx context.Context, req *pb.UpdateFriendU
 				decoded := model.User{}
 				err = friend.Decode(&decoded)
 				if err == nil {
-					update = append(update, id)
+					update = append(update, oid)
 				}
 			}
 		}
@@ -706,13 +763,15 @@ func (s *ServiceServer) RemoveFriendUser(ctx context.Context, req *pb.UpdateFrie
 		)
 	}
 
-	var update []string
+	var update []primitive.ObjectID
 
 	if friends != nil {
 
 		for _, id := range friends {
-
-			update = append(update, id)
+			oid, err := primitive.ObjectIDFromHex(id)
+			if err == nil {
+				update = append(update, oid)
+			}
 		}
 
 	} else {
@@ -735,4 +794,209 @@ func (s *ServiceServer) RemoveFriendUser(ctx context.Context, req *pb.UpdateFrie
 	return &pb.UpdateFriendUserRes{
 		Success: true,
 	}, nil
+}
+
+func (s *ServiceServer) ListFriendsUser(req *pb.ListFriendsUserReq, stream pb.Service_ListFriendsUserServer) error {
+	userID, err := getUserIDStream(req.GetAccessToken())
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+	fmt.Println(userID)
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	filter := bson.M{"_id": oid}
+
+	result := userdb.FindOne(context.Background(), filter)
+
+	data := model.User{}
+	if err := result.Decode(&data); err != nil {
+		return status.Errorf(codes.NotFound, fmt.Sprintf("Could not find user with Object Id %s: %v", userID, err))
+	}
+	fmt.Println(data)
+	// var dataFriends []model.User = []model.User{}
+
+	for _, friendID := range data.Friends {
+
+		filter := bson.M{"_id": friendID}
+		result := userdb.FindOne(context.Background(), filter)
+		// data := model.User{}
+		err := result.Decode(&data)
+		fmt.Println(data)
+
+		if err == nil {
+			stream.Send(&pb.ListFriendsUserRes{
+				User: &pb.User{
+					Id:          oid.Hex(),
+					Name:        data.Name,
+					Email:       data.Email,
+					PhoneNumber: data.PhoneNumber,
+					// Wallet: data.Wallet,
+				},
+			})
+		}
+	}
+
+	return nil
+}
+
+func (s *ServiceServer) ListXFriendsUser(ctx context.Context, req *pb.ListXFriendsUserReq) (*pb.ListXFriendsUserRes, error) {
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	filter := bson.M{"_id": oid}
+
+	result := userdb.FindOne(context.Background(), filter)
+
+	data := model.User{}
+	if err := result.Decode(&data); err != nil {
+		return nil, status.Errorf(codes.NotFound, fmt.Sprintf("Could not find user with Object Id %s: %v", userID, err))
+	}
+
+	var friends []*pb.User = []*pb.User{}
+	var wallets []*pb.Wallet = []*pb.Wallet{}
+
+	limitsize, err := strconv.ParseInt(req.GetNumber(), 10, 32)
+
+	if err == nil {
+
+	}
+
+	for i, friendID := range data.Friends {
+
+		if i >= int(limitsize) {
+			break
+		}
+
+		filter := bson.M{"_id": friendID}
+		// options.FindOne().SetProjection(bson.M{"name": 0}
+		result := userdb.FindOne(context.Background(), filter)
+
+		err := result.Decode(&data)
+		if err == nil {
+			for i := range data.Wallets {
+				wallets = append(wallets, &pb.Wallet{
+					Title:   data.Wallets[i].Title,
+					Address: data.Wallets[i].Address,
+				})
+			}
+
+			friends = append(friends, &pb.User{
+				Name:    data.Name,
+				Wallets: wallets,
+			})
+
+			fmt.Println(data)
+		}
+	}
+
+	// Cast to ReadUserRes type
+	response := &pb.ListXFriendsUserRes{
+		Friends: friends,
+	}
+	return response, nil
+}
+
+func (s *ServiceServer) AddWalletUser(ctx context.Context, req *pb.UpdateWalletUserReq) (*pb.UpdateWalletUserRes, error) {
+	wallet := req.GetWallet()
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	if wallet != nil {
+
+		if wallet.Address != "" || wallet.Title != "" {
+
+			filter := bson.M{"_id": oid}
+
+			result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$addToSet": bson.M{"wallets": wallet}}, options.FindOneAndUpdate().SetReturnDocument(1))
+
+			decoded := model.User{}
+			err = result.Decode(&decoded)
+			if err != nil {
+				return nil, status.Errorf(
+					codes.NotFound,
+					fmt.Sprintf("Could not find user with supplied ID: %v", err),
+				)
+			}
+			// Return response with success: true if no error is thrown (and thus document is removed)
+			return &pb.UpdateWalletUserRes{
+				Success: true,
+			}, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
+}
+
+func (s *ServiceServer) RemoveWalletUser(ctx context.Context, req *pb.UpdateWalletUserReq) (*pb.UpdateWalletUserRes, error) {
+	wallet := req.GetWallet()
+
+	userID, err := getUserID(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("get user ID error: %v", err))
+	}
+
+	// Convert the Id string to a MongoDB ObjectId
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			fmt.Sprintf("Could not convert the supplied user id to a MongoDB ObjectId: %v", err),
+		)
+	}
+
+	if wallet != nil {
+
+		if wallet.Address != "" || wallet.Title != "" {
+
+			filter := bson.M{"_id": oid}
+
+			result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$pullAll": bson.M{"wallets": wallet}}, options.FindOneAndUpdate().SetReturnDocument(1))
+
+			decoded := model.User{}
+			err = result.Decode(&decoded)
+			if err != nil {
+				return nil, status.Errorf(
+					codes.NotFound,
+					fmt.Sprintf("Could not find user with supplied ID: %v", err),
+				)
+			}
+			// Return response with success: true if no error is thrown (and thus document is removed)
+			return &pb.UpdateWalletUserRes{
+				Success: true,
+			}, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
 }

@@ -10,12 +10,17 @@ type Event struct {
 }
 
 type User struct {
-	ID            primitive.ObjectID   `bson:"_id,omitempty"`
-	Email         string               `bson:"email"`
-	Password      string               `bson:"password"`
-	Name          string               `bson:"name"`
-	PhoneNumber   string               `bson:"phoneNumber"`
-	WalletAddress string               `bson:"walletAddress"`
-	Friends       []primitive.ObjectID `bson:"user,omitempty"`
+	ID          primitive.ObjectID   `bson:"_id,omitempty"`
+	Email       string               `bson:"email"`
+	Password    string               `bson:"password"`
+	Name        string               `bson:"name"`
+	PhoneNumber string               `bson:"phoneNumber"`
+	Wallets     []Wallet             `bson:"wallets,omitempty"`
+	Friends     []primitive.ObjectID `bson:"friends,omitempty"`
 	// Events   []modelEvent       `bson:"events"`
+}
+
+type Wallet struct {
+	Title   string `bson:"title"`
+	Address string `bson:"address"`
 }

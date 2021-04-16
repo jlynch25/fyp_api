@@ -39,8 +39,13 @@ message User {
     string password = 3;
     string name = 4;
     string phoneNumber = 5;
-    string walletAddress = 6;
+    repeated Wallet wallets = 6;
     repeated string friends = 7;
+}
+
+message Wallet {
+    string title = 1;
+    string address = 2;
 }
 
 message CreateUserReq {
@@ -100,6 +105,41 @@ message UpdateFriendUserRes {
     bool success = 1;
 }
 
+message ListFriendsUserReq {
+    string AccessToken = 1;
+}
+
+message ListFriendsUserRes {
+    // repeated User user = 1;
+    User user = 1;
+}
+
+message ListXFriendsUserReq {
+    string num = 1;
+}
+
+message ListXFriendsUserRes {
+    repeated User user = 1;
+}
+
+
+message UpdateWalletUserReq {
+    Wallet wallet = 1;
+}
+
+message UpdateWalletUserRes {
+    bool success = 1;
+}
+
+message ListWalletUserReq {
+    string AccessToken = 1;
+}
+
+message ListWalletUserRes {
+    // repeated User user = 1;
+    User user = 1;
+}
+
 message Event {
     string id = 1;
     string author_id = 2;
@@ -154,6 +194,11 @@ service Service {
     rpc ListUsers(ListUsersReq) returns (stream ListUsersRes);
     rpc AddFriendUser(UpdateFriendUserReq) returns (UpdateFriendUserRes);
     rpc RemoveFriendUser(UpdateFriendUserReq) returns (UpdateFriendUserRes);
+    rpc ListFriendsUser(ListFriendsUserReq) returns (stream ListFriendsUserRes);
+    rpc ListXFriendsUser(ListXFriendsUserReq) returns (ListXFriendsUserRes);
+    rpc AddWalletUser(UpdateWalletUserReq) returns (UpdateWalletUserRes);
+    rpc RemoveWalletUser(UpdateWalletUserReq) returns (UpdateWalletUserRes);
+    // rpc ListWalletUser(ListWalletsUserReq) returns (stream ListFriendsUserRes);
     rpc CreateEvent(CreateEventReq) returns (CreateEventRes);
     rpc ReadEvent(ReadEventReq) returns (ReadEventRes);
     rpc UpdateEvent(UpdateEventReq) returns (UpdateEventRes);
