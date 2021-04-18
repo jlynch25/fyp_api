@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -435,9 +436,9 @@ func (s *ServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserReq) (
 	// Cast to CreateUserRes type
 	response := &pb.CreateUserRes{
 		User: &pb.User{
-			Id:    user.Id,
-			Name:  user.Name,
-			Email: user.Email,
+			Id: user.Id,
+			// Name:  user.GetName(),
+			Email: user.GetEmail(),
 		},
 		AccessToken: tokenString,
 	}
@@ -999,4 +1000,36 @@ func (s *ServiceServer) RemoveWalletUser(ctx context.Context, req *pb.UpdateWall
 	}
 
 	return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("No data to change"))
+}
+
+func (srv *ServiceServer) Download(req *pb.DownloadReq, responseStream pb.Service_DownloadServer) error {
+	fmt.Println("HERE download")
+	bufferSize := 64 * 1024 //64KiB, tweak this as desired
+	file, err := os.Open("tmp/blocks_gen/" + req.GetFileName())
+	// fmt.Println(file)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	defer file.Close()
+	buff := make([]byte, bufferSize)
+	for {
+		bytesRead, err := file.Read(buff)
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+			}
+			break
+		}
+		resp := &pb.Chunk{
+			Content: buff[:bytesRead],
+		}
+		// fmt.Println(resp)
+		err = responseStream.Send(resp)
+		if err != nil {
+			log.Println("error while sending chunk:", err)
+			return err
+		}
+	}
+	return nil
 }

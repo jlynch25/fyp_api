@@ -115,11 +115,11 @@ message ListFriendsUserRes {
 }
 
 message ListXFriendsUserReq {
-    string num = 1;
+    string number = 1;
 }
 
 message ListXFriendsUserRes {
-    repeated User user = 1;
+    repeated User friends = 1;
 }
 
 
@@ -185,6 +185,27 @@ message ListEventsRes {
     Event event = 1;
 }
 
+// For Files 
+
+message Chunk {
+    bytes Content = 1;
+}
+
+message DownloadReq {
+    string fileName = 1;
+}
+
+// message UploadStatus {
+//     string Message = 1;
+//     UploadStatusCode Code = 2;
+// }
+
+// enum UploadStatusCode {
+//     Unknown = 0;
+//     Ok = 1;
+//     Failed = 2;
+// }
+
 service Service {
     rpc CreateUser(CreateUserReq) returns (CreateUserRes);
     rpc LoginUser(LoginUserReq) returns (LoginUserRes);
@@ -204,4 +225,7 @@ service Service {
     rpc UpdateEvent(UpdateEventReq) returns (UpdateEventRes);
     rpc DeleteEvent(DeleteEventReq) returns (DeleteEventRes);
     rpc ListEvents(ListEventsReq) returns (stream ListEventsRes);
+    // files
+    rpc Download(DownloadReq) returns (stream Chunk);
+    // rpc Upload(stream Chunk) returns (UploadStatus) {}
 }
