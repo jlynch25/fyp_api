@@ -901,6 +901,7 @@ func (s *ServiceServer) ListXFriendsUser(ctx context.Context, req *pb.ListXFrien
 			}
 
 			friends = append(friends, &pb.User{
+				Id:      data.ID.Hex(),
 				Name:    data.Name,
 				Wallets: wallets,
 			})
