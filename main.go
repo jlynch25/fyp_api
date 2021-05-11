@@ -831,14 +831,25 @@ func (s *ServiceServer) ListFriendsUser(req *pb.ListFriendsUserReq, stream pb.Se
 		err := result.Decode(&data)
 		fmt.Println(data)
 
+		var wallets []*pb.Wallet = []*pb.Wallet{}
+
 		if err == nil {
+
+			for i := range data.Wallets {
+				wallets = append(wallets, &pb.Wallet{
+					Title:   data.Wallets[i].Title,
+					Address: data.Wallets[i].Address,
+				})
+				break // To only return the first (Primary wallet)
+			}
+
 			stream.Send(&pb.ListFriendsUserRes{
 				User: &pb.User{
 					Id:          oid.Hex(),
 					Name:        data.Name,
 					Email:       data.Email,
 					PhoneNumber: data.PhoneNumber,
-					// Wallet: data.Wallet,
+					Wallets:     wallets,
 				},
 			})
 		}
@@ -898,6 +909,7 @@ func (s *ServiceServer) ListXFriendsUser(ctx context.Context, req *pb.ListXFrien
 					Title:   data.Wallets[i].Title,
 					Address: data.Wallets[i].Address,
 				})
+				break // To only return the first (Primary wallet)
 			}
 
 			friends = append(friends, &pb.User{
