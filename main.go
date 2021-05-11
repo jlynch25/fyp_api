@@ -983,7 +983,7 @@ func (s *ServiceServer) RemoveWalletUser(ctx context.Context, req *pb.UpdateWall
 
 			filter := bson.M{"_id": oid}
 
-			result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$pullAll": bson.M{"wallets": wallet}}, options.FindOneAndUpdate().SetReturnDocument(1))
+			result := userdb.FindOneAndUpdate(ctx, filter, bson.M{"$pull": bson.M{"wallets": wallet}}, options.FindOneAndUpdate().SetReturnDocument(1))
 
 			decoded := model.User{}
 			err = result.Decode(&decoded)
